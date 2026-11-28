@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -16,61 +17,93 @@ type LocationAreas struct {
 	} `json:"results"`
 }
 
-func commandMap(cfg *config) error {
+func commandMap(cfg *config, argv []string) error {
+	if len(argv) != 0 {
+		return fmt.Errorf("usage: map")
+	}
 	if len(cfg.locationAreaNext) == 0 {
 		return fmt.Errorf("you're on the last page")
 	}
 
-	resp, err := http.Get(cfg.locationAreaNext)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	var data LocationAreas
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status code: %v", resp.StatusCode)
+	entry, ok := cfg.commandCache.Get(cfg.locationAreaNext)
+	if ok {
+		err := json.Unmarshal(entry, &data)
+		if err != nil {
+			return err
+		}
+	} else {
+		resp, err := http.Get(cfg.locationAreaNext)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("status code: %v", resp.StatusCode)
+		}
+		bytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(bytes, &data)
+		if err != nil {
+			return err
+		}
+		cfg.commandCache.Add(cfg.locationAreaNext, bytes)
 	}
 
-	dec := json.NewDecoder(resp.Body)
-	var areas LocationAreas
-	if err := dec.Decode(&areas); err != nil {
-		return err
-	}
-
-	for _, c := range areas.Results {
+	for _, c := range data.Results {
 		fmt.Println(c.Name)
 	}
 
-	cfg.locationAreaPrevious = cfg.locationAreaNext
-	cfg.locationAreaNext = areas.Next
+	cfg.locationAreaPrevious = data.Previous
+	cfg.locationAreaNext = data.Next
+
 	return nil
 }
 
-func commandMapBack(cfg *config) error {
+func commandMapBack(cfg *config, argv []string) error {
+	if len(argv) != 0 {
+		return fmt.Errorf("usage: mapb")
+	}
 	if len(cfg.locationAreaPrevious) == 0 {
 		return fmt.Errorf("you're on the first page")
 	}
 
-	resp, err := http.Get(cfg.locationAreaPrevious)
-	if err != nil {
-		return err
+	var data LocationAreas
+
+	entry, ok := cfg.commandCache.Get(cfg.locationAreaPrevious)
+	if ok {
+		err := json.Unmarshal(entry, &data)
+		if err != nil {
+			return err
+		}
+	} else {
+		resp, err := http.Get(cfg.locationAreaPrevious)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("status code: %v", resp.StatusCode)
+		}
+		bytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(bytes, &data)
+		if err != nil {
+			return err
+		}
+		cfg.commandCache.Add(cfg.locationAreaPrevious, bytes)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status code: %v", resp.StatusCode)
-	}
-
-	dec := json.NewDecoder(resp.Body)
-	var areas LocationAreas
-	if err := dec.Decode(&areas); err != nil {
-		return err
-	}
-
-	for _, c := range areas.Results {
+	for _, c := range data.Results {
 		fmt.Println(c.Name)
 	}
 
-	cfg.locationAreaNext = cfg.locationAreaPrevious
-	cfg.locationAreaPrevious = areas.Previous
+	cfg.locationAreaNext = data.Next
+	cfg.locationAreaPrevious = data.Previous
 	return nil
 }
